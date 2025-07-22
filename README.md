@@ -122,7 +122,7 @@ Este projeto está licenciado sob os termos da licença especificada no arquivo 
 
 ---
 
-**Desenvolvido por**: [Seu Nome]  
+**Desenvolvido por**: Nicholas Nascimento
 **Propósito**: Teste prático para professor de Python - Kodland  
 **Data**: Julho 2025  
 **Framework**: PyZero (Pygame Zero)
