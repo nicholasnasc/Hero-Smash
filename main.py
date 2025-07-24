@@ -1,255 +1,430 @@
 import pgzrun
+import math
+import random
+from pygame import Rect
 
 WIDTH = 800
 HEIGHT = 600
-TITLE = "Hero Smash"
+TITLE = "Breaking Hero"
 
-from pgzero.actor import Actor
-from pygame import Rect
-import random
-import math
+MENU = "menu"
+PLAYING = "playing"
+GAME_OVER = "game_over"
 
-player = Actor('character_maleadventurer_idle', (400, 300))  # Começar no meio da tela
-player.vx = 0
-player.vy = 0
-player.on_ground = False
-player.animation_frame = 0
-player.animation_timer = 0
-player.state = "idle"
-player.health = 100
-player.attacking = False
-player.attack_timer = 0
+game_state = MENU
+music_enabled = True
+sounds_enabled = True
 
-# Sistema de pontuação
-score = 0
-enemies_defeated = 0
+current_wave = 1
+max_waves = 3
+enemies_spawned = False
 
-# Lista de inimigos
+def init_audio():
+    global music_enabled
+    if music_enabled:
+        try:
+            music.play('background_music')
+            music.set_volume(0.5)
+        except:
+            pass
+
+class Hero:
+    def __init__(self):
+        self.actor = Actor('hero')
+        self.actor.pos = (100, 400)
+        
+        self.ground_level = 430
+        self.actor.y = self.ground_level
+        
+        self.direction = 1
+        self.velocity_y = 0
+        self.on_ground = True
+        self.gravity = 0.8
+        self.jump_force = -15
+        self.speed = 200
+        
+        self.health = 100
+        self.max_health = 100
+        self.is_dead = False
+        self.attack_timer = 0
+        self.attack_duration = 0.6
+        
+        self.state = 'idle'
+        self.animation_frame = 0
+        self.animation_timer = 0
+        self.animation_speed = 0.15
+        
+        self.animations = {
+            'idle': ['hero'],
+            'walking': ['hero_walk', 'hero_walk2', 'hero_walk3', 'hero_walk4', 'hero_walk5', 'hero_walk6', 'hero_walk7'],
+            'jumping': ['hero_jump', 'hero_jump2'],
+            'attacking': ['hero_attack', 'hero_attack1', 'hero_attack2', 'hero_attack3'],
+            'dead': ['hero_down2']
+        }
+        
+        self.animations_left = {
+            'idle': ['hero'],
+            'walking': ['hero_walk_left', 'hero_walk2_left', 'hero_walk3_left', 'hero_walk4_left', 'hero_walk5_left', 'hero_walk6_left', 'hero_walk7_left'],
+            'jumping': ['hero_jump_left', 'hero_jump2_left'],
+            'attacking': ['hero_attack_left', 'hero_attack1_left', 'hero_attack2_left', 'hero_attack3_left'],
+            'dead': ['hero_down2']
+        }
+        
+    def update(self, dt):
+        if self.is_dead:
+            self.state = 'dead'
+            if keyboard.r:
+                self.revive()
+            return
+            
+        self.animation_timer += dt
+        self.attack_timer -= dt
+        
+        moving = False
+        if keyboard.left:
+            self.actor.x -= self.speed * dt
+            self.direction = -1
+            moving = True
+        if keyboard.right:
+            self.actor.x += self.speed * dt
+            self.direction = 1
+            moving = True
+
+        if keyboard.space and self.on_ground:
+            self.velocity_y = self.jump_force
+            self.on_ground = False
+            if sounds_enabled:
+                try:
+                    sounds.jump.play()
+                except:
+                    pass
+            
+        if keyboard.x and self.attack_timer <= 0:
+            self.state = 'attacking'
+            self.attack_timer = self.attack_duration
+            if sounds_enabled:
+                try:
+                    sounds.attack.play()
+                except:
+                    pass
+            
+        if self.attack_timer > 0:
+            self.state = 'attacking'
+        elif not self.on_ground:
+            self.state = 'jumping'
+        elif moving:
+            self.state = 'walking'
+        else:
+            self.state = 'idle'
+            
+        if not self.on_ground:
+            self.velocity_y += self.gravity
+            self.actor.y += self.velocity_y
+            if self.actor.y >= self.ground_level:
+                self.actor.y = self.ground_level
+                self.velocity_y = 0
+                self.on_ground = True
+                
+        self.actor.x = max(50, min(WIDTH - 50, self.actor.x))
+        
+        self.update_animation()
+        
+    def update_animation(self):
+        if self.animation_timer >= self.animation_speed:
+            self.animation_timer = 0
+            
+            if self.direction == -1:
+                current_animation = self.animations_left[self.state]
+            else:
+                current_animation = self.animations[self.state]
+                
+            if self.state != 'dead':
+                self.animation_frame = (self.animation_frame + 1) % len(current_animation)
+            self.actor.image = current_animation[self.animation_frame]
+            
+    def take_damage(self, damage):
+        if not self.is_dead:
+            self.health -= damage
+            if self.health <= 0:
+                self.health = 0
+                self.is_dead = True
+                
+    def revive(self):
+        self.is_dead = False
+        self.health = self.max_health
+        self.state = 'idle'
+        
+    def draw(self):
+        self.actor.draw()
+
+class Enemy:
+    def __init__(self, x, y, enemy_type="normal"):
+        self.actor = Actor('alienblue_stand')
+        
+        self.ground_level = 420
+        self.actor.pos = (x, self.ground_level)
+        
+        self.enemy_type = enemy_type
+        self.direction = 1
+        self.start_x = x
+        self.health = 30
+        self.is_dead = False
+        
+        self.attack_timer = 0
+        self.attack_duration = 0.8
+        self.attack_range = 50
+        
+        if enemy_type == "fast":
+            self.speed = 120
+            self.patrol_range = 200
+            self.detection_range = 150
+            self.damage = 10
+            self.attack_cooldown = 1.5
+        else:
+            self.speed = 60
+            self.patrol_range = 150
+            self.detection_range = 120
+            self.damage = 15
+            self.attack_cooldown = 2.0
+            
+
+        self.state = 'patrol'
+        self.animation_frame = 0
+        self.animation_timer = 0
+        self.animation_speed = 0.2
+        
+        self.animations = {
+            'patrol': ['alienblue_walk1', 'alienblue_walk2'],
+            'chase': ['alienblue_swim1', 'alienblue_swim2'],
+            'attack': ['alienblue_swim1', 'alienblue_swim2'],
+            'dead': ['alienblue_hurt']
+        }
+        
+        self.animations_left = {
+            'patrol': ['alienblue_walk1_left', 'alienblue_walk2_left'],
+            'chase': ['alienblue_swim1_left', 'alienblue_swim2_left'],
+            'attack': ['alienblue_swim1_left', 'alienblue_swim2_left'],
+            'dead': ['alienblue_hurt_left']
+        }
+        
+    def update(self, dt, hero):
+        if self.is_dead:
+            self.state = 'dead'
+            return
+            
+        self.animation_timer += dt
+        self.attack_timer -= dt
+        distance_to_hero = abs(self.actor.x - hero.actor.x)
+        
+        if (not hero.is_dead and distance_to_hero <= self.attack_range and 
+            self.attack_timer <= 0):
+            self.state = 'attack'
+            self.attack_timer = self.attack_cooldown
+            hero.take_damage(self.damage)
+            if sounds_enabled:
+                try:
+                    sounds.enemy_attack.play()
+                except:
+                    pass
+
+        elif (not hero.is_dead and distance_to_hero <= self.detection_range and
+              distance_to_hero > self.attack_range):
+            self.state = 'chase'
+            if hero.actor.x < self.actor.x:
+                self.direction = -1
+                self.actor.x -= self.speed * dt
+            else:
+                self.direction = 1
+                self.actor.x += self.speed * dt
+                
+        else:
+            self.state = 'patrol'
+            if self.actor.x <= self.start_x - self.patrol_range:
+                self.direction = 1
+            elif self.actor.x >= self.start_x + self.patrol_range:
+                self.direction = -1
+            self.actor.x += self.direction * self.speed * 0.5 * dt
+            
+        if (hero.state == 'attacking' and distance_to_hero <= 60 and not self.is_dead):
+            self.take_damage(50)
+            if sounds_enabled:
+                try:
+                    sounds.enemy_hurt.play()
+                except:
+                    pass
+            
+        self.actor.x = max(50, min(WIDTH - 50, self.actor.x))
+        self.update_animation()
+        
+    def take_damage(self, damage):
+        if not self.is_dead:
+            self.health -= damage
+            if self.health <= 0:
+                self.is_dead = True
+                
+    def update_animation(self):
+        if self.animation_timer >= self.animation_speed:
+            self.animation_timer = 0
+            
+            if self.direction == -1:
+                current_animation = self.animations_left[self.state]
+            else:
+                current_animation = self.animations[self.state]
+                
+            if self.state != 'dead':
+                self.animation_frame = (self.animation_frame + 1) % len(current_animation)
+            self.actor.image = current_animation[self.animation_frame]
+            
+    def draw(self):
+        self.actor.draw()
+        if not self.is_dead and self.health < 30:
+            bar_width = 30
+            bar_height = 4
+            bar_x = self.actor.x - bar_width // 2
+            bar_y = self.actor.y - self.actor.height // 2 - 10
+            
+            screen.draw.filled_rect(Rect(bar_x, bar_y, bar_width, bar_height), (139, 0, 0))
+
+            health_width = int((self.health / 30) * bar_width)
+            screen.draw.filled_rect(Rect(bar_x, bar_y, health_width, bar_height), (0, 128, 0))
+
+hero = Hero()
 enemies = []
 
-platforms = []
+def spawn_wave(wave_number):
+    """Spawna inimigos baseado no número da onda"""
+    global enemies
+    enemies = []
+    
+    if wave_number == 1:
+        enemies.append(Enemy(400, 420, "normal"))
+    elif wave_number == 2:
+        enemies.append(Enemy(350, 420, "normal"))
+        enemies.append(Enemy(450, 420, "fast"))
+    elif wave_number == 3:
+        enemies.append(Enemy(300, 420, "normal"))
+        enemies.append(Enemy(400, 420, "fast"))
+        enemies.append(Enemy(500, 420, "normal"))
 
-ground = Actor('platform', (400, 590))
-platforms.append(ground)
+def reset_game():
+    global hero, enemies, current_wave, enemies_spawned
+    hero = Hero()
+    current_wave = 1
+    enemies_spawned = False
+    spawn_wave(current_wave)
 
-def create_enemy(x, y):
-    """Cria um novo inimigo robô"""
-    # Temporariamente usando sprite do herói, depois você substitui por robô
-    enemy = Actor('character_maleadventurer_idle', (x, y))
-    enemy.vx = 0
-    enemy.vy = 0
-    enemy.on_ground = False
-    enemy.health = 50
-    enemy.direction = 1  # 1 = direita, -1 = esquerda
-    enemy.move_timer = 0
-    enemy.state = "idle"
-    enemy.animation_frame = 0
-    enemy.animation_timer = 0
-    enemy.is_enemy = True
-    return enemy
-
-# Criar alguns inimigos iniciais
-enemies.append(create_enemy(600, 300))
-enemies.append(create_enemy(200, 300))
+def update(dt):
+    global game_state, current_wave, enemies_spawned
+    
+    if game_state == MENU:
+        pass
+    elif game_state == PLAYING:
+        if not enemies_spawned:
+            spawn_wave(current_wave)
+            enemies_spawned = True
+            
+        hero.update(dt)
+        for enemy in enemies:
+            enemy.update(dt, hero)
+            
+        if hero.is_dead:
+            game_state = GAME_OVER
+        if all(enemy.is_dead for enemy in enemies):
+            if current_wave < max_waves:
+                # Next wave
+                current_wave += 1
+                enemies_spawned = False
+            else:
+                game_state = GAME_OVER
+            
+    elif game_state == GAME_OVER:
+        if keyboard.r:
+            reset_game()
+            game_state = PLAYING
 
 def draw():
-    screen.clear()
     screen.fill((135, 206, 235))
     
-    # Desenhar plataformas
-    for platform in platforms:
-        platform.draw()
+    if game_state == MENU:
+        draw_menu()
+    elif game_state == PLAYING:
+        draw_game()
+    elif game_state == GAME_OVER:
+        draw_game_over()
+
+def draw_menu():
+    screen.draw.text("HERO BATTLE", center=(WIDTH//2, 150), fontsize=60, color="white")
     
-    # Desenhar inimigos
+    start_button = Rect(WIDTH//2 - 100, 250, 200, 50)
+    music_button = Rect(WIDTH//2 - 100, 320, 200, 50)
+    exit_button = Rect(WIDTH//2 - 100, 390, 200, 50)
+    
+    screen.draw.filled_rect(start_button, (0, 128, 0))
+    screen.draw.filled_rect(music_button, (0, 0, 128))
+    screen.draw.filled_rect(exit_button, (128, 0, 0))
+    
+    screen.draw.text("START GAME", center=start_button.center, fontsize=30, color="white")
+    music_text = f"MUSIC: {'ON' if music_enabled else 'OFF'}"
+    screen.draw.text(music_text, center=music_button.center, fontsize=30, color="white")
+    screen.draw.text("EXIT", center=exit_button.center, fontsize=30, color="white")
+
+def draw_game():
+    screen.draw.filled_rect(Rect(0, 450, WIDTH, 150), (34, 139, 34))
+    
+    hero.draw()
     for enemy in enemies:
         enemy.draw()
-        # Barra de vida do inimigo
-        bar_width = 40
-        bar_height = 5
-        health_percent = enemy.health / 50
-        screen.draw.filled_rect(
-            Rect(enemy.x - bar_width//2, enemy.y - 40, bar_width, bar_height), 
-            (255, 0, 0)
-        )
-        screen.draw.filled_rect(
-            Rect(enemy.x - bar_width//2, enemy.y - 40, bar_width * health_percent, bar_height), 
-            (0, 255, 0)
-        )
     
-    # Desenhar player
-    player.draw()
+    screen.draw.text("ARROWS: Move | SPACE: Jump | X: Attack", (10, 10), fontsize=20, color="white")
+    screen.draw.text(f"Health: {hero.health}/100", (10, 40), fontsize=20, 
+                    color="green" if hero.health > 50 else "red")
     
-    # Interface do jogo
-    screen.draw.text(f"Pontuação: {score}", (10, 10), color="white", fontsize=30)
-    screen.draw.text(f"Robôs Derrotados: {enemies_defeated}", (10, 50), color="white", fontsize=25)
-    screen.draw.text(f"Vida: {player.health}", (10, 90), color="white", fontsize=25)
-    screen.draw.text(f"Inimigos Restantes: {len(enemies)}", (10, 130), color="white", fontsize=25)
+    alive_enemies = sum(1 for enemy in enemies if not enemy.is_dead)
+    screen.draw.text(f"Enemies: {alive_enemies}", (WIDTH - 150, 10), fontsize=20, color="orange")
+
+def draw_game_over():
+    draw_game()
     
-    # Instruções
-    screen.draw.text("CONTROLES:", (WIDTH - 200, 10), color="yellow", fontsize=20)
-    screen.draw.text("Z = Atacar", (WIDTH - 200, 35), color="white", fontsize=18)
-    screen.draw.text("Setas = Mover", (WIDTH - 200, 60), color="white", fontsize=18)
-    screen.draw.text("Shift + Setas = Correr", (WIDTH - 200, 85), color="white", fontsize=18)
-
-def update():
-    global score, enemies_defeated
+    screen.draw.filled_rect(Rect(0, 0, WIDTH, HEIGHT), (0, 0, 0, 128))
     
-    # Atualizar player
-    gravity = 0.5
-    player.vy += gravity
-    player.x += player.vx
-    player.y += player.vy
-
-    # Atualizar timer de ataque
-    if player.attacking:
-        player.attack_timer -= 1
-        if player.attack_timer <= 0:
-            player.attacking = False
-
-    # Colisão do player com plataformas
-    player.on_ground = False
-    for platform in platforms:
-        if player.colliderect(platform) and player.vy >= 0:
-            player.bottom = platform.top
-            player.vy = 0
-            player.on_ground = True
-            break
-
-    # Atualizar inimigos
-    for enemy in enemies[:]:  # [:] faz uma cópia da lista
-        # Física do inimigo
-        enemy.vy += gravity
-        enemy.x += enemy.vx
-        enemy.y += enemy.vy
-        
-        # Colisão do inimigo com plataformas
-        enemy.on_ground = False
-        for platform in platforms:
-            if enemy.colliderect(platform) and enemy.vy >= 0:
-                enemy.bottom = platform.top
-                enemy.vy = 0
-                enemy.on_ground = True
-                break
-        
-        # IA simples do inimigo
-        enemy.move_timer += 1
-        if enemy.move_timer >= 60:  # Muda direção a cada 60 frames (1 segundo)
-            enemy.direction *= -1
-            enemy.move_timer = 0
-        
-        enemy.vx = enemy.direction * 1  # Velocidade lenta
-        
-        # Impedir que inimigo saia da tela
-        if enemy.left < 0 or enemy.right > WIDTH:
-            enemy.direction *= -1
-        
-        # Verificar colisão com ataque do player
-        if player.attacking and player.colliderect(enemy):
-            enemy.health -= 25
-            if enemy.health <= 0:
-                enemies.remove(enemy)
-                score += 100
-                enemies_defeated += 1
-                # Criar novo inimigo após um tempo
-                if len(enemies) < 3:  # Máximo 3 inimigos na tela
-                    import random
-                    new_x = random.randint(100, WIDTH - 100)
-                    enemies.append(create_enemy(new_x, 300))
-
-    # Impedir que o player saia da tela
-    if player.left < 0:
-        player.left = 0
-    elif player.right > WIDTH:
-        player.right = WIDTH
-
-    # Determinar estado do player
-    if player.attacking:
-        player.state = "attacking"
-    elif not player.on_ground:
-        player.state = "jumping"
-    elif keyboard.down:
-        player.state = "crouching"
-    elif abs(player.vx) > 0:
-        if abs(player.vx) >= 5:
-            player.state = "running"
-        else:
-            player.state = "walking"
+    if hero.is_dead:
+        screen.draw.text("GAME OVER!", center=(WIDTH//2, HEIGHT//2 - 50), fontsize=48, color="red")
+        screen.draw.text("Press R to restart", center=(WIDTH//2, HEIGHT//2), fontsize=24, color="white")
     else:
-        player.state = "idle"
+        screen.draw.text("VICTORY!", center=(WIDTH//2, HEIGHT//2 - 50), fontsize=48, color="gold")
+        screen.draw.text("All enemies defeated!", center=(WIDTH//2, HEIGHT//2), fontsize=24, color="white")
+        screen.draw.text("Press R to restart", center=(WIDTH//2, HEIGHT//2 + 30), fontsize=24, color="white")
 
-    update_player_animation()
-    update_enemies_animation()
-
-def update_player_animation():
-    """Atualiza a animação do player baseado no seu estado"""
-    player.animation_timer += 1
+def on_mouse_down(pos):
+    global game_state, music_enabled
     
-    if player.state == "attacking":
-        # Animação de ataque - alternar entre os 3 sprites de ataque
-        if player.animation_timer >= 5:
-            player.animation_frame = (player.animation_frame + 1) % 3
-            player.animation_timer = 0
-        player.image = f"character_maleadventurer_attack{player.animation_frame}"
-    
-    elif player.state == "idle":
-        player.image = "character_maleadventurer_idle"
-    
-    elif player.state == "walking":
-        if player.animation_timer >= 8:
-            player.animation_frame = (player.animation_frame + 1) % 8
-            player.animation_timer = 0
-        player.image = f"character_maleadventurer_walk{player.animation_frame}"
-    
-    elif player.state == "running":
-        if player.animation_timer >= 5:
-            player.animation_frame = (player.animation_frame + 1) % 3  
-            player.animation_timer = 0
-        player.image = f"character_maleadventurer_run{player.animation_frame}"
-    
-    elif player.state == "jumping":
-        if player.vy < 0:
-            player.image = "character_maleadventurer_jump"
-        else:
-            player.image = "character_maleadventurer_fall"
-    
-    elif player.state == "crouching":
-        player.image = "character_maleadventurer_duck"
-
-def update_enemies_animation():
-    """Atualiza a animação dos inimigos"""
-    for enemy in enemies:
-        enemy.animation_timer += 1
+    if game_state == MENU:
+        start_button = Rect(WIDTH//2 - 100, 250, 200, 50)
+        music_button = Rect(WIDTH//2 - 100, 320, 200, 50)
+        exit_button = Rect(WIDTH//2 - 100, 390, 200, 50)
         
-        if abs(enemy.vx) > 0:  # Se está se movendo
-            if enemy.animation_timer >= 10:
-                enemy.animation_frame = (enemy.animation_frame + 1) % 8
-                enemy.animation_timer = 0
-            enemy.image = f"character_maleadventurer_walk{enemy.animation_frame}"
-        else:
-            enemy.image = "character_maleadventurer_idle"
-
-def on_key_down(key):
-    if key == keys.LEFT:
-        if keyboard.lshift or keyboard.rshift:
-            player.vx = -5
-        else:
-            player.vx = -3
-    elif key == keys.RIGHT:
-        if keyboard.lshift or keyboard.rshift:
-            player.vx = 5
-        else:
-            player.vx = 3
-    elif key == keys.SPACE and player.on_ground:
-        player.vy = -10
-    elif key == keys.DOWN:
-        pass
-    elif key == keys.Z:  # Tecla de ataque
-        if not player.attacking:
-            player.attacking = True
-            player.attack_timer = 15  # Duração do ataque em frames
-
-def on_key_up(key):
-    if key == keys.LEFT or key == keys.RIGHT:
-        player.vx = 0
-
+        if start_button.collidepoint(pos):
+            game_state = PLAYING
+            reset_game()
+            if music_enabled:
+                try:
+                    music.play('background_music')
+                    music.set_volume(0.5)
+                except:
+                    pass
+        elif music_button.collidepoint(pos):
+            music_enabled = not music_enabled
+            if music_enabled:
+                try:
+                    music.play('background_music')
+                    music.set_volume(0.5)
+                except:
+                    pass
+            else:
+                try:
+                    music.stop()
+                except:
+                    pass
+        elif exit_button.collidepoint(pos):
+            exit()
 pgzrun.go()
