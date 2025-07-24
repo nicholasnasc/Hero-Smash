@@ -3,9 +3,9 @@ import math
 import random
 from pygame import Rect
 
-WIDTH = 800
+WIDTH = 1000
 HEIGHT = 600
-TITLE = "Breaking Hero"
+TITLE = "Hero Smash"
 
 MENU = "menu"
 PLAYING = "playing"
@@ -16,7 +16,7 @@ music_enabled = True
 sounds_enabled = True
 
 current_wave = 1
-max_waves = 3
+max_waves = 5
 enemies_spawned = False
 
 def init_audio():
@@ -296,15 +296,48 @@ def spawn_wave(wave_number):
     global enemies
     enemies = []
     
+    def get_random_positions(num_enemies, min_distance=100):
+        positions = []
+        max_attempts = 50
+        
+        for _ in range(num_enemies):
+            attempts = 0
+            while attempts < max_attempts:
+                x = random.randint(150, 650)
+                valid_position = True
+                for existing_x in positions:
+                    if abs(x - existing_x) < min_distance:
+                        valid_position = False
+                        break
+
+                if valid_position:
+                    positions.append(x)
+                    break
+                
+                attempts += 1
+        
+            if attempts >= max_attempts:
+                positions.append(random.randint(150, 650))
+        
+        return positions
+
     if wave_number == 1:
-        enemies.append(Enemy(400, 420, "normal"))
+        positions = get_random_positions(1)
+        enemies.append(Enemy(positions[0], 420, "normal"))
     elif wave_number == 2:
-        enemies.append(Enemy(350, 420, "normal"))
-        enemies.append(Enemy(450, 420, "fast"))
+        positions = get_random_positions(2, min_distance=120)
+        enemies.append(Enemy(positions[0], 420, "normal"))
+        enemies.append(Enemy(positions[1], 420, "fast"))
     elif wave_number == 3:
-        enemies.append(Enemy(300, 420, "normal"))
-        enemies.append(Enemy(400, 420, "fast"))
-        enemies.append(Enemy(500, 420, "normal"))
+        positions = get_random_positions(3, min_distance=100)
+        enemy_types = ["normal", "fast", "normal"]
+        for i, pos in enumerate(positions):
+            enemies.append(Enemy(pos, 420, enemy_types[i]))
+    elif wave_number == 4:
+        positions = get_random_positions(4, min_distance=80)
+        enemy_types = ["normal", "fast", "normal", "fast"]
+        for i, pos in enumerate(positions):
+            enemies.append(Enemy(pos, 420, enemy_types[i]))
 
 def reset_game():
     global hero, enemies, current_wave, enemies_spawned
@@ -353,7 +386,7 @@ def draw():
         draw_game_over()
 
 def draw_menu():
-    screen.draw.text("HERO BATTLE", center=(WIDTH//2, 150), fontsize=60, color="white")
+    screen.draw.text("HERO SMASH", center=(WIDTH//2, 150), fontsize=60, color="white")
     
     start_button = Rect(WIDTH//2 - 100, 250, 200, 50)
     music_button = Rect(WIDTH//2 - 100, 320, 200, 50)
@@ -363,10 +396,10 @@ def draw_menu():
     screen.draw.filled_rect(music_button, (0, 0, 128))
     screen.draw.filled_rect(exit_button, (128, 0, 0))
     
-    screen.draw.text("START GAME", center=start_button.center, fontsize=30, color="white")
-    music_text = f"MUSIC: {'ON' if music_enabled else 'OFF'}"
+    screen.draw.text("INICIAR O JOGO", center=start_button.center, fontsize=30, color="white")
+    music_text = f"MUSICA: {'ON' if music_enabled else 'OFF'}"
     screen.draw.text(music_text, center=music_button.center, fontsize=30, color="white")
-    screen.draw.text("EXIT", center=exit_button.center, fontsize=30, color="white")
+    screen.draw.text("SAIR", center=exit_button.center, fontsize=30, color="white")
 
 def draw_game():
     screen.draw.filled_rect(Rect(0, 450, WIDTH, 150), (34, 139, 34))
@@ -375,12 +408,12 @@ def draw_game():
     for enemy in enemies:
         enemy.draw()
     
-    screen.draw.text("ARROWS: Move | SPACE: Jump | X: Attack", (10, 10), fontsize=20, color="white")
-    screen.draw.text(f"Health: {hero.health}/100", (10, 40), fontsize=20, 
+    screen.draw.text("SETAS: MOVER | ESPAÇO: PULAR | X: ATAQUE", (10, 10), fontsize=20, color="white")
+    screen.draw.text(f"Vida: {hero.health}/100", (10, 40), fontsize=20,
                     color="green" if hero.health > 50 else "red")
     
     alive_enemies = sum(1 for enemy in enemies if not enemy.is_dead)
-    screen.draw.text(f"Enemies: {alive_enemies}", (WIDTH - 150, 10), fontsize=20, color="orange")
+    screen.draw.text(f"Inimigos: {alive_enemies}", (WIDTH - 150, 10), fontsize=20, color="orange")
 
 def draw_game_over():
     draw_game()
@@ -388,12 +421,12 @@ def draw_game_over():
     screen.draw.filled_rect(Rect(0, 0, WIDTH, HEIGHT), (0, 0, 0, 128))
     
     if hero.is_dead:
-        screen.draw.text("GAME OVER!", center=(WIDTH//2, HEIGHT//2 - 50), fontsize=48, color="red")
-        screen.draw.text("Press R to restart", center=(WIDTH//2, HEIGHT//2), fontsize=24, color="white")
+        screen.draw.text("FIM DE JOGO!", center=(WIDTH//2, HEIGHT//2 - 50), fontsize=48, color="red")
+        screen.draw.text("Pressione R para reiniciar", center=(WIDTH//2, HEIGHT//2), fontsize=24, color="white")
     else:
-        screen.draw.text("VICTORY!", center=(WIDTH//2, HEIGHT//2 - 50), fontsize=48, color="gold")
-        screen.draw.text("All enemies defeated!", center=(WIDTH//2, HEIGHT//2), fontsize=24, color="white")
-        screen.draw.text("Press R to restart", center=(WIDTH//2, HEIGHT//2 + 30), fontsize=24, color="white")
+        screen.draw.text("VITÓRIA!", center=(WIDTH//2, HEIGHT//2 - 50), fontsize=48, color="gold")
+        screen.draw.text("Todos os inimigos derrotados!", center=(WIDTH//2, HEIGHT//2), fontsize=24, color="white")
+        screen.draw.text("Pressione R para reiniciar", center=(WIDTH//2, HEIGHT//2 + 30), fontsize=24, color="white")
 
 def on_mouse_down(pos):
     global game_state, music_enabled
